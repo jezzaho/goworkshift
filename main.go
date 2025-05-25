@@ -37,6 +37,41 @@ type Schedule struct {
 	Shifts []Shift
 }
 
+func (s *Schedule) EmployeeStats(id string) ([]time.Duration, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id pracownika nie może być puste")
+	}
+
+	var totalDuration time.Duration
+	// Night shifts counts from 22:00 to 6:00
+	var nightShiftsDuration time.Duration
+	// Holiday shifts counts from 6:00 to 6:00 next day - effectively 24h but in practice we can count a full shift on sunday a holiday shift
+	// TODO add local holidays into consideration
+	var holidayShiftsDuration time.Duration
+	for _, shift := range s.Shifts {
+		if shift.EmployeeID == id {
+			totalDuration += shift.End.Sub(shift.Start)
+			if shift.Start.Day() != shift.End.Day() {
+				// we always will have full night shifts
+				nightShiftsDuration += time.Hour * 8
+			}
+			if shift.Start.Weekday() == time.Sunday && shift.Start.Day() == shift.End.Day() {
+				holidayShiftsDuration += shift.End.Sub(shift.Start)
+			} else if shift.Start.Weekday() == time.Sunday && shift.End.Day() != shift.Start.Day() {
+				// if shift starts on Sunday and ends on Monday, we count holiday hours only from start of shift to midnight
+				holidayShiftsDuration += time.Date(shift.Start.Year(), shift.Start.Month(), shift.Start.Day(), 23, 59, 59, 0, shift.Start.Location()).Sub(shift.Start) + time.Second
+			}
+		}
+	}
+
+	if totalDuration == 0 {
+		return nil, fmt.Errorf("brak zmian dla pracownika o ID %s", id)
+	}
+
+	stats := []time.Duration{totalDuration, nightShiftsDuration, holidayShiftsDuration}
+	return stats, nil
+}
+
 func (s *Schedule) WorkTimeInRange(fromDate, toDate time.Time, workerID string) (time.Duration, error) {
 	if fromDate.After(toDate) {
 		return 0, fmt.Errorf("data początkowa nie może być późniejsza niż data końcowa")
@@ -51,7 +86,13 @@ func (s *Schedule) WorkTimeInRange(fromDate, toDate time.Time, workerID string) 
 		}
 	}
 	return totalDuration, nil
+
 }
+
+// // Helper function enhance Before and After
+// func (t time.Time) Before(other time.Time) bool {
+// 	if
+
 func max(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a
@@ -71,25 +112,46 @@ type Employee struct {
 }
 
 func main() {
-
-	// Check work time in range
+	// Check employee stats
 
 	schedule := &Schedule{
 		Shifts: []Shift{
 			{EmployeeID: "123", Start: time.Date(2023, 10, 1, 8, 0, 0, 0, time.Local), End: time.Date(2023, 10, 1, 16, 0, 0, 0, time.Local)},
 			{EmployeeID: "123", Start: time.Date(2023, 10, 2, 8, 0, 0, 0, time.Local), End: time.Date(2023, 10, 2, 16, 0, 0, 0, time.Local)},
-			{EmployeeID: "456", Start: time.Date(2023, 10, 1, 16, 0, 0, 0, time.Local), End: time.Date(2023, 10, 1, 24, 0, 0, 0, time.Local)},
-			{EmployeeID: "456", Start: time.Date(2023, 10, 2, 16, 0, 0, 0, time.Local), End: time.Date(2023, 10, 2, 24, 0, 0, 0, time.Local)},
+			{EmployeeID: "123", Start: time.Date(2023, 10, 3, 19, 0, 0, 0, time.Local), End: time.Date(2023, 10, 4, 7, 0, 0, 0, time.Local)},
+			{EmployeeID: "123", Start: time.Date(2023, 10, 8, 20, 0, 0, 0, time.Local), End: time.Date(2023, 10, 9, 6, 0, 0, 0, time.Local)},
 		},
 	}
-	fromDate := time.Date(2023, 10, 1, 0, 0, 0, 0, time.Local)
-	toDate := time.Date(2023, 10, 2, 0, 0, 0, 0, time.Local)
-	workTime, err := schedule.WorkTimeInRange(fromDate, toDate, "123")
+
+	employeeID := "123"
+	stats, err := schedule.EmployeeStats(employeeID)
 	if err != nil {
-		fmt.Printf("Błąd obliczania czasu pracy: %v\n", err)
+		fmt.Printf("Błąd pobierania statystyk pracownika: %v\n", err)
 		return
 	}
-	fmt.Printf("Czas pracy pracownika 123 w podanym zakresie: %v\n", workTime)
+	fmt.Printf("Statystyki pracownika %s:\n", employeeID)
+	fmt.Printf("Czas pracy: %v\n", stats[0])
+	fmt.Printf("Czas pracy w nocy: %v\n", stats[1])
+	fmt.Printf("Czas pracy w święta: %v\n", stats[2])
+
+	// // Check work time in range
+
+	// schedule := &Schedule{
+	// 	Shifts: []Shift{
+	// 		{EmployeeID: "123", Start: time.Date(2023, 10, 1, 8, 0, 0, 0, time.Local), End: time.Date(2023, 10, 1, 16, 0, 0, 0, time.Local)},
+	// 		{EmployeeID: "123", Start: time.Date(2023, 10, 2, 8, 0, 0, 0, time.Local), End: time.Date(2023, 10, 2, 16, 0, 0, 0, time.Local)},
+	// 		{EmployeeID: "456", Start: time.Date(2023, 10, 1, 16, 0, 0, 0, time.Local), End: time.Date(2023, 10, 1, 24, 0, 0, 0, time.Local)},
+	// 		{EmployeeID: "456", Start: time.Date(2023, 10, 2, 16, 0, 0, 0, time.Local), End: time.Date(2023, 10, 2, 24, 0, 0, 0, time.Local)},
+	// 	},
+	// }
+	// fromDate := time.Date(2023, 10, 1, 0, 0, 0, 0, time.Local)
+	// toDate := time.Date(2023, 10, 2, 23, 59, 0, 0, time.Local)
+	// workTime, err := schedule.WorkTimeInRange(fromDate, toDate, "123")
+	// if err != nil {
+	// 	fmt.Printf("Błąd obliczania czasu pracy: %v\n", err)
+	// 	return
+	// }
+	// fmt.Printf("Czas pracy pracownika 123 w podanym zakresie: %v\n", workTime)
 
 	// Check time difference between shifts
 	// shift1 := &Shift{
